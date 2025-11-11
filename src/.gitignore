@@ -1,0 +1,46 @@
+# Ambientes virtuais Python
+.venv/
+venv/
+env/
+ENV/
+
+# Poetry
+poetry.lock
+
+# Arquivos Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Arquivos temporários da API
+temp/
+*.zip
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Distribuição / empacotamento
+build/
+dist/
+*.egg-info/
