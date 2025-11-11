@@ -121,7 +121,7 @@ poetry install
 
 1. Clone o repositório ou navegue até a pasta do projeto:
 ```bash
-cd processamento_imagem
+cd processamento_imagem/src
 ```
 
 2. Instale as dependências (Poetry criará um ambiente virtual isolado automaticamente):
@@ -131,7 +131,7 @@ poetry install
 
 3. Execute a API em modo desenvolvimento:
 ```bash
-poetry poe dev
+poetry run poe dev
 ```
 
 Este comando iniciará o servidor com hot-reload (recarrega automaticamente quando o código muda).
@@ -162,7 +162,7 @@ http://localhost:8000/docs
 ## Estrutura do Projeto
 
 ```
-processamento_imagem/
+src/
 ├── principal.py              # API FastAPI principal
 ├── filtros/
 │   ├── __init__.py
