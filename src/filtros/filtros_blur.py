@@ -1,5 +1,7 @@
 import cv2
 import numpy as np
+from fastapi import HTTPException
+from validacao import validar_kernel_impar, validar_intervalo
 
 
 def filtro_gaussiano(
@@ -19,14 +21,30 @@ def filtro_gaussiano(
 
     Returns:
         Imagem com filtro aplicado
-    """
-    # Garantir que os valores são ímpares
-    if kernel_width % 2 == 0:
-        kernel_width += 1
-    if kernel_height % 2 == 0:
-        kernel_height += 1
 
-    return cv2.GaussianBlur(img, (kernel_width, kernel_height), sigma)
+    Raises:
+        HTTPException: Se os parâmetros forem inválidos ou houver erro no OpenCV
+    """
+    try:
+        # Validar parâmetros
+        validar_kernel_impar(kernel_width, "kernel_width")
+        validar_kernel_impar(kernel_height, "kernel_height")
+        validar_intervalo(int(sigma), 0, 100, "sigma")
+
+        return cv2.GaussianBlur(img, (kernel_width, kernel_height), sigma)
+
+    except HTTPException:
+        raise
+    except cv2.error as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro no OpenCV ao aplicar filtro Gaussiano: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao aplicar filtro Gaussiano: {str(e)}"
+        )
 
 
 def filtro_bilateral(
@@ -46,8 +64,30 @@ def filtro_bilateral(
 
     Returns:
         Imagem com filtro aplicado
+
+    Raises:
+        HTTPException: Se os parâmetros forem inválidos ou houver erro no OpenCV
     """
-    return cv2.bilateralFilter(img, d, sigma_cor, sigma_espaco)
+    try:
+        # Validar parâmetros
+        validar_intervalo(d, 1, 50, "d")
+        validar_intervalo(sigma_cor, 1, 200, "sigma_cor")
+        validar_intervalo(sigma_espaco, 1, 200, "sigma_espaco")
+
+        return cv2.bilateralFilter(img, d, sigma_cor, sigma_espaco)
+
+    except HTTPException:
+        raise
+    except cv2.error as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro no OpenCV ao aplicar filtro Bilateral: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao aplicar filtro Bilateral: {str(e)}"
+        )
 
 
 def filtro_media(
@@ -65,8 +105,29 @@ def filtro_media(
 
     Returns:
         Imagem com filtro aplicado
+
+    Raises:
+        HTTPException: Se os parâmetros forem inválidos ou houver erro no OpenCV
     """
-    return cv2.blur(img, (kernel_width, kernel_height))
+    try:
+        # Validar parâmetros
+        validar_intervalo(kernel_width, 1, 99, "kernel_width")
+        validar_intervalo(kernel_height, 1, 99, "kernel_height")
+
+        return cv2.blur(img, (kernel_width, kernel_height))
+
+    except HTTPException:
+        raise
+    except cv2.error as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro no OpenCV ao aplicar filtro de Média: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao aplicar filtro de Média: {str(e)}"
+        )
 
 
 def filtro_mediana(img: np.ndarray, tamanho: int = 3) -> np.ndarray:
@@ -79,12 +140,28 @@ def filtro_mediana(img: np.ndarray, tamanho: int = 3) -> np.ndarray:
 
     Returns:
         Imagem com filtro aplicado
-    """
-    # Garantir que o tamanho é ímpar
-    if tamanho % 2 == 0:
-        tamanho += 1
 
-    return cv2.medianBlur(img, tamanho)
+    Raises:
+        HTTPException: Se os parâmetros forem inválidos ou houver erro no OpenCV
+    """
+    try:
+        # Validar parâmetros
+        validar_kernel_impar(tamanho, "tamanho")
+
+        return cv2.medianBlur(img, tamanho)
+
+    except HTTPException:
+        raise
+    except cv2.error as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro no OpenCV ao aplicar filtro de Mediana: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao aplicar filtro de Mediana: {str(e)}"
+        )
 
 
 # Configurações de níveis para cada filtro

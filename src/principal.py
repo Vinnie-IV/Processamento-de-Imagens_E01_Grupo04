@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Path, BackgroundTasks, Form
+from fastapi import FastAPI, UploadFile, File, HTTPException, Path, BackgroundTasks, Form, Query
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from enum import Enum
@@ -46,6 +46,14 @@ class NivelFiltro(int, Enum):
     FORTE = 3
 
 
+# Enum para formatos de saída de imagem
+class FormatoImagem(str, Enum):
+    """Formatos de saída para imagens"""
+    PNG = "png"
+    JPEG = "jpeg"
+    JPG = "jpg"
+
+
 # Inicializar FastAPI
 app = FastAPI(
     title="API de Filtros de Imagem",
@@ -64,6 +72,51 @@ app.add_middleware(
 
 
 # ============================================================================
+# EXCEPTION HANDLERS - Tratamento de Erros Global
+# ============================================================================
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(_request, exc):
+    """Handler para HTTPExceptions com mensagens em português."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"mensagem": exc.detail}
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request, exc):
+    """Handler para erros de validação do Pydantic com mensagens em português."""
+    errors = []
+    for error in exc.errors():
+        field = " -> ".join(str(loc) for loc in error["loc"])
+        msg = error["msg"]
+        errors.append(f"{field}: {msg}")
+
+    # Retornar mensagem consolidada
+    mensagem_detalhada = "Erro de validação: " + "; ".join(errors)
+    return JSONResponse(
+        status_code=422,
+        content={"mensagem": mensagem_detalhada}
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(_request, exc):
+    """Handler para exceções não tratadas."""
+    logger.error(f"Erro não tratado: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"mensagem": f"Erro interno do servidor: {str(exc)}"}
+    )
+
+
+# ============================================================================
 # ENDPOINTS CUSTOMIZADOS (devem vir ANTES dos endpoints com {nivel})
 # ============================================================================
 
@@ -74,7 +127,8 @@ async def gaussiano_customizado(
     arquivo: UploadFile = File(..., description="Imagem para processar"),
     kernel_width: int = Form(5, description="Largura do kernel (deve ser ímpar)"),
     kernel_height: int = Form(5, description="Altura do kernel (deve ser ímpar)"),
-    sigma: float = Form(0, description="Desvio padrão (0 = calculado automaticamente)")
+    sigma: float = Form(0, description="Desvio padrão (0 = calculado automaticamente)"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Gaussiano com parâmetros customizados (retorna JSON)."""
     inicio = time.time()
@@ -97,8 +151,8 @@ async def gaussiano_customizado(
     }
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="gaussiano",
         parametros=parametros
@@ -111,7 +165,8 @@ async def gaussiano_customizado_download(
     arquivo: UploadFile = File(..., description="Imagem para processar"),
     kernel_width: int = Form(5, description="Largura do kernel (deve ser ímpar)"),
     kernel_height: int = Form(5, description="Altura do kernel (deve ser ímpar)"),
-    sigma: float = Form(0, description="Desvio padrão (0 = calculado automaticamente)")
+    sigma: float = Form(0, description="Desvio padrão (0 = calculado automaticamente)"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Gaussiano customizado e retorna ZIP."""
     inicio = time.time()
@@ -140,7 +195,7 @@ async def gaussiano_customizado_download(
         "descricao": "Filtro Gaussiano com parâmetros customizados"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "gaussiano_customizado")
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "gaussiano_customizado", formato=formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -157,7 +212,8 @@ async def bilateral_customizado(
     arquivo: UploadFile = File(..., description="Imagem para processar"),
     d: int = Form(9, description="Diâmetro da vizinhança de pixels"),
     sigma_cor: int = Form(75, description="Filtro sigma no espaço de cor"),
-    sigma_espaco: int = Form(75, description="Filtro sigma no espaço de coordenadas")
+    sigma_espaco: int = Form(75, description="Filtro sigma no espaço de coordenadas"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Bilateral com parâmetros customizados (retorna JSON)."""
     inicio = time.time()
@@ -180,8 +236,8 @@ async def bilateral_customizado(
     }
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="bilateral",
         parametros=parametros
@@ -194,7 +250,8 @@ async def bilateral_customizado_download(
     arquivo: UploadFile = File(..., description="Imagem para processar"),
     d: int = Form(9, description="Diâmetro da vizinhança de pixels"),
     sigma_cor: int = Form(75, description="Filtro sigma no espaço de cor"),
-    sigma_espaco: int = Form(75, description="Filtro sigma no espaço de coordenadas")
+    sigma_espaco: int = Form(75, description="Filtro sigma no espaço de coordenadas"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Bilateral customizado e retorna ZIP."""
     inicio = time.time()
@@ -223,7 +280,7 @@ async def bilateral_customizado_download(
         "descricao": "Filtro Bilateral com parâmetros customizados"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "bilateral_customizado")
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "bilateral_customizado", formato=formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -239,7 +296,8 @@ async def bilateral_customizado_download(
 async def media_customizado(
     arquivo: UploadFile = File(..., description="Imagem para processar"),
     kernel_width: int = Form(3, description="Largura do kernel"),
-    kernel_height: int = Form(3, description="Altura do kernel")
+    kernel_height: int = Form(3, description="Altura do kernel"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro de Média com parâmetros customizados (retorna JSON)."""
     inicio = time.time()
@@ -260,8 +318,8 @@ async def media_customizado(
     }
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="media",
         parametros=parametros
@@ -273,7 +331,8 @@ async def media_customizado_download(
     background_tasks: BackgroundTasks,
     arquivo: UploadFile = File(..., description="Imagem para processar"),
     kernel_width: int = Form(3, description="Largura do kernel"),
-    kernel_height: int = Form(3, description="Altura do kernel")
+    kernel_height: int = Form(3, description="Altura do kernel"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro de Média customizado e retorna ZIP."""
     inicio = time.time()
@@ -300,7 +359,7 @@ async def media_customizado_download(
         "descricao": "Filtro de Média com parâmetros customizados"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "media_customizado")
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "media_customizado", formato=formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -315,7 +374,8 @@ async def media_customizado_download(
 @app.post("/filtros/mediana/customizado", response_model=RespostaFiltroJSON, tags=["Filtros Customizados"])
 async def mediana_customizado(
     arquivo: UploadFile = File(..., description="Imagem para processar"),
-    tamanho: int = Form(3, description="Tamanho do kernel (deve ser ímpar)")
+    tamanho: int = Form(3, description="Tamanho do kernel (deve ser ímpar)"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro de Mediana com parâmetros customizados (retorna JSON)."""
     inicio = time.time()
@@ -329,8 +389,8 @@ async def mediana_customizado(
     parametros = {"tamanho": tamanho}
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="mediana",
         parametros=parametros
@@ -341,7 +401,8 @@ async def mediana_customizado(
 async def mediana_customizado_download(
     background_tasks: BackgroundTasks,
     arquivo: UploadFile = File(..., description="Imagem para processar"),
-    tamanho: int = Form(3, description="Tamanho do kernel (deve ser ímpar)")
+    tamanho: int = Form(3, description="Tamanho do kernel (deve ser ímpar)"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro de Mediana customizado e retorna ZIP."""
     inicio = time.time()
@@ -361,7 +422,7 @@ async def mediana_customizado_download(
         "descricao": "Filtro de Mediana com parâmetros customizados"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "mediana_customizado")
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "mediana_customizado", formato=formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -379,7 +440,8 @@ async def canny_customizado(
     limiar1: int = Form(100, description="Primeiro limiar para histerese (0-255)"),
     limiar2: int = Form(200, description="Segundo limiar para histerese (0-255)"),
     tamanho_abertura: int = Form(3, description="Tamanho da abertura Sobel (3-7)"),
-    aplicar_blur: bool = Form(True, description="Aplicar blur gaussiano antes da detecção")
+    aplicar_blur: bool = Form(True, description="Aplicar blur gaussiano antes da detecção"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica detector Canny com parâmetros customizados (retorna JSON)."""
     inicio = time.time()
@@ -404,8 +466,8 @@ async def canny_customizado(
     }
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="canny",
         parametros=parametros
@@ -419,7 +481,8 @@ async def canny_customizado_download(
     limiar1: int = Form(100, description="Primeiro limiar para histerese (0-255)"),
     limiar2: int = Form(200, description="Segundo limiar para histerese (0-255)"),
     tamanho_abertura: int = Form(3, description="Tamanho da abertura Sobel (3-7)"),
-    aplicar_blur: bool = Form(True, description="Aplicar blur gaussiano antes da detecção")
+    aplicar_blur: bool = Form(True, description="Aplicar blur gaussiano antes da detecção"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica detector Canny customizado e retorna ZIP."""
     inicio = time.time()
@@ -450,7 +513,7 @@ async def canny_customizado_download(
         "descricao": "Detector de bordas Canny com parâmetros customizados"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "canny_customizado")
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "canny_customizado", formato=formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -469,7 +532,8 @@ async def canny_customizado_download(
 @app.post("/filtros/sobel/{nivel}", response_model=RespostaFiltroJSON, tags=["Detecção de Bordas"])
 async def aplicar_sobel(
     nivel: NivelFiltro = Path(..., description="Nível do filtro (1=baixo, 2=normal, 3=forte)"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Sobel para detecção de bordas (retorna JSON com base64)."""
     inicio = time.time()
@@ -481,8 +545,8 @@ async def aplicar_sobel(
     logger.info(f"Filtro Sobel (nível {nivel}) gerado em {tempo_ms:.2f} ms")
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="sobel",
         nivel=nivel
@@ -493,7 +557,8 @@ async def aplicar_sobel(
 async def download_sobel(
     background_tasks: BackgroundTasks,
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Sobel e retorna ZIP com imagens."""
     inicio = time.time()
@@ -511,7 +576,7 @@ async def download_sobel(
         "descricao": "Detector de bordas Sobel"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "sobel", nivel)
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "sobel", nivel, formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -526,7 +591,8 @@ async def download_sobel(
 @app.post("/filtros/roberts/{nivel}", response_model=RespostaFiltroJSON, tags=["Detecção de Bordas"])
 async def aplicar_roberts(
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Roberts para detecção de bordas (retorna JSON com base64)."""
     inicio = time.time()
@@ -538,8 +604,8 @@ async def aplicar_roberts(
     logger.info(f"Filtro Roberts (nível {nivel}) gerado em {tempo_ms:.2f} ms")
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="roberts",
         nivel=nivel
@@ -550,7 +616,8 @@ async def aplicar_roberts(
 async def download_roberts(
     background_tasks: BackgroundTasks,
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Roberts e retorna ZIP com imagens."""
     inicio = time.time()
@@ -568,7 +635,7 @@ async def download_roberts(
         "descricao": "Detector de bordas Roberts"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "roberts", nivel)
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "roberts", nivel, formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -583,7 +650,8 @@ async def download_roberts(
 @app.post("/filtros/canny/{nivel}", response_model=RespostaFiltroJSON, tags=["Detecção de Bordas"])
 async def aplicar_canny(
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica detector de bordas Canny (retorna JSON com base64)."""
     inicio = time.time()
@@ -595,8 +663,8 @@ async def aplicar_canny(
     logger.info(f"Filtro Canny (nível {nivel}) gerado em {tempo_ms:.2f} ms")
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="canny",
         nivel=nivel,
@@ -608,7 +676,8 @@ async def aplicar_canny(
 async def download_canny(
     background_tasks: BackgroundTasks,
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica detector Canny e retorna ZIP com imagens."""
     inicio = time.time()
@@ -627,7 +696,7 @@ async def download_canny(
         "descricao": "Detector de bordas Canny"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "canny", nivel)
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "canny", nivel, formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -642,7 +711,8 @@ async def download_canny(
 @app.post("/filtros/gaussiano/{nivel}", response_model=RespostaFiltroJSON, tags=["Filtros de Blur"])
 async def aplicar_gaussiano(
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Gaussiano (retorna JSON com base64)."""
     inicio = time.time()
@@ -654,8 +724,8 @@ async def aplicar_gaussiano(
     logger.info(f"Filtro Gaussiano (nível {nivel}) gerado em {tempo_ms:.2f} ms")
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="gaussiano",
         nivel=nivel,
@@ -667,7 +737,8 @@ async def aplicar_gaussiano(
 async def download_gaussiano(
     background_tasks: BackgroundTasks,
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Gaussiano e retorna ZIP com imagens."""
     inicio = time.time()
@@ -686,7 +757,7 @@ async def download_gaussiano(
         "descricao": "Filtro Gaussiano (blur)"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "gaussiano", nivel)
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "gaussiano", nivel, formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -701,7 +772,8 @@ async def download_gaussiano(
 @app.post("/filtros/bilateral/{nivel}", response_model=RespostaFiltroJSON, tags=["Filtros de Blur"])
 async def aplicar_bilateral(
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Bilateral (retorna JSON com base64)."""
     inicio = time.time()
@@ -713,8 +785,8 @@ async def aplicar_bilateral(
     logger.info(f"Filtro Bilateral (nível {nivel}) gerado em {tempo_ms:.2f} ms")
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="bilateral",
         nivel=nivel,
@@ -726,7 +798,8 @@ async def aplicar_bilateral(
 async def download_bilateral(
     background_tasks: BackgroundTasks,
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro Bilateral e retorna ZIP com imagens."""
     inicio = time.time()
@@ -745,7 +818,7 @@ async def download_bilateral(
         "descricao": "Filtro Bilateral (preserva bordas)"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "bilateral", nivel)
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "bilateral", nivel, formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -760,7 +833,8 @@ async def download_bilateral(
 @app.post("/filtros/media/{nivel}", response_model=RespostaFiltroJSON, tags=["Filtros de Blur"])
 async def aplicar_media(
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro de Média (retorna JSON com base64)."""
     inicio = time.time()
@@ -772,8 +846,8 @@ async def aplicar_media(
     logger.info(f"Filtro de Média (nível {nivel}) gerado em {tempo_ms:.2f} ms")
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="media",
         nivel=nivel,
@@ -785,7 +859,8 @@ async def aplicar_media(
 async def download_media(
     background_tasks: BackgroundTasks,
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro de Média e retorna ZIP com imagens."""
     inicio = time.time()
@@ -804,7 +879,7 @@ async def download_media(
         "descricao": "Filtro de Média (blur uniforme)"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "media", nivel)
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "media", nivel, formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(
@@ -819,7 +894,8 @@ async def download_media(
 @app.post("/filtros/mediana/{nivel}", response_model=RespostaFiltroJSON, tags=["Filtros de Blur"])
 async def aplicar_mediana(
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro de Mediana (retorna JSON com base64)."""
     inicio = time.time()
@@ -831,8 +907,8 @@ async def aplicar_mediana(
     logger.info(f"Filtro de Mediana (nível {nivel}) gerado em {tempo_ms:.2f} ms")
 
     return RespostaFiltroJSON(
-        imagem_original=imagem_para_base64(img_original),
-        imagem_filtrada=imagem_para_base64(img_filtrada),
+        imagem_original=imagem_para_base64(img_original, formato.value),
+        imagem_filtrada=imagem_para_base64(img_filtrada, formato.value),
         tempo_ms=tempo_ms,
         filtro="mediana",
         nivel=nivel,
@@ -844,7 +920,8 @@ async def aplicar_mediana(
 async def download_mediana(
     background_tasks: BackgroundTasks,
     nivel: NivelFiltro = Path(..., description="Nível do filtro"),
-    arquivo: UploadFile = File(..., description="Imagem para processar")
+    arquivo: UploadFile = File(..., description="Imagem para processar"),
+    formato: FormatoImagem = Query(FormatoImagem.PNG, description="Formato de saída da imagem")
 ):
     """Aplica filtro de Mediana e retorna ZIP com imagens."""
     inicio = time.time()
@@ -863,7 +940,7 @@ async def download_mediana(
         "descricao": "Filtro de Mediana (remove ruído sal e pimenta)"
     }
 
-    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "mediana", nivel)
+    caminho_zip = criar_zip_resposta(img_original, img_filtrada, metadados, "mediana", nivel, formato.value)
     background_tasks.add_task(limpar_arquivo_temporario, caminho_zip)
 
     return FileResponse(

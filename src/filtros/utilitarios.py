@@ -18,7 +18,17 @@ async def processar_imagem_upload(arquivo: UploadFile) -> np.ndarray:
 
     Returns:
         Array NumPy da imagem em formato BGR
+
+    Raises:
+        HTTPException: Se o arquivo for inválido ou houver erro no processamento
     """
+    # Validar que um arquivo foi enviado
+    if not arquivo or not arquivo.filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Nenhum arquivo foi enviado"
+        )
+
     # Validar tipo de arquivo
     extensoes_validas = ['.jpg', '.jpeg', '.png']
     extensao = os.path.splitext(arquivo.filename)[1].lower()
@@ -26,31 +36,55 @@ async def processar_imagem_upload(arquivo: UploadFile) -> np.ndarray:
     if extensao not in extensoes_validas:
         raise HTTPException(
             status_code=400,
-            detail=f"Formato de arquivo não suportado. Use: {', '.join(extensoes_validas)}"
+            detail=f"Formato de arquivo não suportado '{extensao}'. Formatos aceitos: {', '.join(extensoes_validas)}"
         )
 
-    # Ler conteúdo do arquivo
-    conteudo = await arquivo.read()
+    try:
+        # Ler conteúdo do arquivo
+        conteudo = await arquivo.read()
 
-    # Validar tamanho (máximo 10MB)
-    tamanho_mb = len(conteudo) / (1024 * 1024)
-    if tamanho_mb > 10:
+        # Validar que o arquivo não está vazio
+        if len(conteudo) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="O arquivo enviado está vazio"
+            )
+
+        # Validar tamanho (máximo 10MB)
+        tamanho_mb = len(conteudo) / (1024 * 1024)
+        if tamanho_mb > 10:
+            raise HTTPException(
+                status_code=413,  # Payload Too Large
+                detail=f"Arquivo muito grande ({tamanho_mb:.2f}MB). Tamanho máximo: 10MB"
+            )
+
+        # Converter para array NumPy
+        np_arr = np.frombuffer(conteudo, np.uint8)
+        img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+        if img is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Não foi possível decodificar a imagem. O arquivo pode estar corrompido ou não ser uma imagem válida."
+            )
+
+        # Validar dimensões mínimas
+        altura, largura = img.shape[:2]
+        if altura < 10 or largura < 10:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Imagem muito pequena ({largura}x{altura}). Dimensões mínimas: 10x10 pixels"
+            )
+
+        return img
+
+    except HTTPException:
+        raise
+    except Exception as e:
         raise HTTPException(
-            status_code=400,
-            detail=f"Arquivo muito grande ({tamanho_mb:.2f}MB). Tamanho máximo: 10MB"
+            status_code=500,
+            detail=f"Erro ao processar upload da imagem: {str(e)}"
         )
-
-    # Converter para array NumPy
-    np_arr = np.frombuffer(conteudo, np.uint8)
-    img = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-    if img is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Erro ao decodificar a imagem. Arquivo pode estar corrompido."
-        )
-
-    return img
 
 
 def converter_para_cinza(img: np.ndarray) -> np.ndarray:
@@ -74,26 +108,45 @@ def imagem_para_base64(img: np.ndarray, formato: str = 'png') -> str:
 
     Args:
         img: Array NumPy da imagem
-        formato: Formato de saída ('png' ou 'jpg')
+        formato: Formato de saída ('png', 'jpeg' ou 'jpg')
 
     Returns:
         String base64 da imagem com prefixo data URI
+
+    Raises:
+        HTTPException: Se houver erro na codificação da imagem
     """
-    # Se for escala de cinza, converter para 3 canais para melhor compatibilidade
-    if len(img.shape) == 2:
-        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    try:
+        # Se for escala de cinza, converter para 3 canais para melhor compatibilidade
+        if len(img.shape) == 2:
+            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
 
-    # Codificar imagem
-    if formato.lower() == 'jpg':
-        _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 95])
-        mime_type = 'image/jpeg'
-    else:
-        _, buffer = cv2.imencode('.png', img)
-        mime_type = 'image/png'
+        # Codificar imagem
+        formato_lower = formato.lower()
+        if formato_lower in ['jpg', 'jpeg']:
+            sucesso, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            mime_type = 'image/jpeg'
+        else:
+            sucesso, buffer = cv2.imencode('.png', img)
+            mime_type = 'image/png'
 
-    # Converter para base64
-    img_base64 = base64.b64encode(buffer).decode('utf-8')
-    return f"data:{mime_type};base64,{img_base64}"
+        if not sucesso:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Erro ao codificar imagem no formato {formato}"
+            )
+
+        # Converter para base64
+        img_base64 = base64.b64encode(buffer).decode('utf-8')
+        return f"data:{mime_type};base64,{img_base64}"
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao converter imagem para base64: {str(e)}"
+        )
 
 
 def criar_zip_resposta(
@@ -101,7 +154,8 @@ def criar_zip_resposta(
     img_filtrada: np.ndarray,
     metadados: dict,
     nome_filtro: str,
-    nivel: int = None
+    nivel: int = None,
+    formato: str = 'png'
 ) -> str:
     """
     Cria arquivo ZIP contendo imagens e metadados.
@@ -112,36 +166,55 @@ def criar_zip_resposta(
         metadados: Dicionário com informações (tempo_ms, filtro, etc)
         nome_filtro: Nome do filtro aplicado
         nivel: Nível do filtro (opcional)
+        formato: Formato da imagem (png, jpeg, jpg). Padrão: 'png'
 
     Returns:
         Caminho do arquivo ZIP criado
+
+    Raises:
+        HTTPException: Se houver erro na criação do ZIP
     """
-    # Criar nome do arquivo
-    if nivel:
-        nome_zip = f"filtro_{nome_filtro}_nivel{nivel}.zip"
-    else:
-        nome_zip = f"filtro_{nome_filtro}_customizado.zip"
+    try:
+        # OpenCV's imencode requer '.jpg' não '.jpeg'
+        formato_cv2 = 'jpg' if formato in ['jpg', 'jpeg'] else formato
+        extensao = formato  # Mantém a escolha do usuário para extensão do arquivo
 
-    caminho_zip = os.path.join("temp", nome_zip)
+        # Criar nome do arquivo
+        if nivel:
+            nome_zip = f"filtro_{nome_filtro}_nivel{nivel}.zip"
+        else:
+            nome_zip = f"filtro_{nome_filtro}_customizado.zip"
 
-    # Garantir que a pasta temp existe
-    os.makedirs("temp", exist_ok=True)
+        caminho_zip = os.path.join("temp", nome_zip)
 
-    # Criar ZIP
-    with zipfile.ZipFile(caminho_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # Salvar imagem original
-        _, buffer_original = cv2.imencode('.png', img_original)
-        zipf.writestr('original.png', buffer_original.tobytes())
+        # Garantir que a pasta temp existe
+        os.makedirs("temp", exist_ok=True)
 
-        # Salvar imagem filtrada
-        _, buffer_filtrada = cv2.imencode('.png', img_filtrada)
-        zipf.writestr('filtrada.png', buffer_filtrada.tobytes())
+        # Criar ZIP
+        with zipfile.ZipFile(caminho_zip, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Salvar imagem original
+            sucesso, buffer_original = cv2.imencode(f'.{formato_cv2}', img_original)
+            if not sucesso:
+                raise Exception("Falha ao codificar imagem original")
+            zipf.writestr(f'original.{extensao}', buffer_original.tobytes())
 
-        # Salvar metadados
-        info_json = json.dumps(metadados, indent=2, ensure_ascii=False)
-        zipf.writestr('info.json', info_json)
+            # Salvar imagem filtrada
+            sucesso, buffer_filtrada = cv2.imencode(f'.{formato_cv2}', img_filtrada)
+            if not sucesso:
+                raise Exception("Falha ao codificar imagem filtrada")
+            zipf.writestr(f'filtrada.{extensao}', buffer_filtrada.tobytes())
 
-    return caminho_zip
+            # Salvar metadados
+            info_json = json.dumps(metadados, indent=2, ensure_ascii=False)
+            zipf.writestr('info.json', info_json)
+
+        return caminho_zip
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao criar arquivo ZIP: {str(e)}"
+        )
 
 
 def limpar_arquivo_temporario(caminho: str):

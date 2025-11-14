@@ -2,6 +2,8 @@ import cv2
 import numpy as np
 from skimage import filters
 from .utilitarios import converter_para_cinza
+from fastapi import HTTPException
+from validacao import validar_intervalo, validar_tamanho_abertura_canny, validar_ordem_limiares_canny
 
 
 def borda_sobel(img: np.ndarray) -> np.ndarray:
@@ -13,23 +15,38 @@ def borda_sobel(img: np.ndarray) -> np.ndarray:
 
     Returns:
         Imagem com bordas detectadas
+
+    Raises:
+        HTTPException: Se houver erro no processamento
     """
-    # Converter para escala de cinza se necessário
-    img_gray = converter_para_cinza(img)
+    try:
+        # Converter para escala de cinza se necessário
+        img_gray = converter_para_cinza(img)
 
-    # Normalizar para float64 (necessário para scikit-image)
-    img_normalizada = img_gray.astype(np.float64) / 255.0
+        # Normalizar para float64 (necessário para scikit-image)
+        img_normalizada = img_gray.astype(np.float64) / 255.0
 
-    # Aplicar Sobel em X e Y
-    sobel_x = filters.sobel_h(img_normalizada)
-    sobel_y = filters.sobel_v(img_normalizada)
+        # Aplicar Sobel em X e Y
+        sobel_x = filters.sobel_h(img_normalizada)
+        sobel_y = filters.sobel_v(img_normalizada)
 
-    # Calcular magnitude
-    borda = np.hypot(sobel_x, sobel_y)
+        # Calcular magnitude
+        borda = np.hypot(sobel_x, sobel_y)
 
-    # Normalizar para 0-255
-    borda = (borda / borda.max()) * 255
-    return borda.astype(np.uint8)
+        # Verificar divisão por zero
+        max_val = borda.max()
+        if max_val == 0:
+            return np.zeros_like(img_gray)
+
+        # Normalizar para 0-255
+        borda = (borda / max_val) * 255
+        return borda.astype(np.uint8)
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao aplicar filtro Sobel: {str(e)}"
+        )
 
 
 def borda_roberts(img: np.ndarray) -> np.ndarray:
@@ -41,19 +58,34 @@ def borda_roberts(img: np.ndarray) -> np.ndarray:
 
     Returns:
         Imagem com bordas detectadas
+
+    Raises:
+        HTTPException: Se houver erro no processamento
     """
-    # Converter para escala de cinza se necessário
-    img_gray = converter_para_cinza(img)
+    try:
+        # Converter para escala de cinza se necessário
+        img_gray = converter_para_cinza(img)
 
-    # Normalizar para float64
-    img_normalizada = img_gray.astype(np.float64) / 255.0
+        # Normalizar para float64
+        img_normalizada = img_gray.astype(np.float64) / 255.0
 
-    # Aplicar Roberts
-    roberts_borda = filters.roberts(img_normalizada)
+        # Aplicar Roberts
+        roberts_borda = filters.roberts(img_normalizada)
 
-    # Normalizar para 0-255
-    roberts_borda = (roberts_borda / roberts_borda.max()) * 255
-    return roberts_borda.astype(np.uint8)
+        # Verificar divisão por zero
+        max_val = roberts_borda.max()
+        if max_val == 0:
+            return np.zeros_like(img_gray)
+
+        # Normalizar para 0-255
+        roberts_borda = (roberts_borda / max_val) * 255
+        return roberts_borda.astype(np.uint8)
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao aplicar filtro Roberts: {str(e)}"
+        )
 
 
 def borda_canny(
@@ -75,25 +107,48 @@ def borda_canny(
 
     Returns:
         Imagem com bordas detectadas
+
+    Raises:
+        HTTPException: Se os parâmetros forem inválidos ou houver erro no OpenCV
     """
-    # Converter para escala de cinza se necessário
-    img_gray = converter_para_cinza(img)
+    try:
+        # Validar parâmetros
+        validar_intervalo(limiar1, 0, 255, "limiar1")
+        validar_intervalo(limiar2, 0, 255, "limiar2")
+        validar_tamanho_abertura_canny(tamanho_abertura)
+        validar_ordem_limiares_canny(limiar1, limiar2)
 
-    # Garantir que está em uint8
-    if img_gray.dtype != np.uint8:
-        if img_gray.dtype in [np.float32, np.float64]:
-            img_gray = (img_gray * 255).astype(np.uint8)
-        else:
-            img_gray = img_gray.astype(np.uint8)
+        # Converter para escala de cinza se necessário
+        img_gray = converter_para_cinza(img)
 
-    # Aplicar blur se solicitado
-    if aplicar_blur:
-        img_gray = cv2.GaussianBlur(img_gray, (5, 5), 0)
+        # Garantir que está em uint8
+        if img_gray.dtype != np.uint8:
+            if img_gray.dtype in [np.float32, np.float64]:
+                img_gray = (img_gray * 255).astype(np.uint8)
+            else:
+                img_gray = img_gray.astype(np.uint8)
 
-    # Aplicar Canny
-    edges = cv2.Canny(img_gray, limiar1, limiar2, apertureSize=tamanho_abertura)
+        # Aplicar blur se solicitado
+        if aplicar_blur:
+            img_gray = cv2.GaussianBlur(img_gray, (5, 5), 0)
 
-    return edges
+        # Aplicar Canny
+        edges = cv2.Canny(img_gray, limiar1, limiar2, apertureSize=tamanho_abertura)
+
+        return edges
+
+    except HTTPException:
+        raise
+    except cv2.error as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro no OpenCV ao aplicar detector Canny: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erro ao aplicar detector Canny: {str(e)}"
+        )
 
 
 # Configurações de níveis para Canny
