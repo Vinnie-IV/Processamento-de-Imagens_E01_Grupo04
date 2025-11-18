@@ -14,11 +14,13 @@ API REST desenvolvida com FastAPI para aplicar filtros de processamento de image
 ## Filtros Disponíveis
 
 ### Detecção de Bordas
+
 - **Sobel**: Detecta bordas usando operador Sobel
 - **Roberts**: Detecta bordas usando operador Roberts
 - **Canny**: Detector de bordas Canny com controle de limiares
 
 ### Filtros de Blur
+
 - **Gaussiano**: Blur gaussiano com controle de kernel
 - **Bilateral**: Filtro bilateral que preserva bordas
 - **Média**: Filtro de média (blur uniforme)
@@ -27,109 +29,34 @@ API REST desenvolvida com FastAPI para aplicar filtros de processamento de image
 ## Instalação
 
 ### Pré-requisitos
+
 - Python 3.12.5
 - Poetry (gerenciador de dependências)
 
 ### Instalando o Poetry
 
-Se você ainda não tem o Poetry instalado:
+Instale o Poetry usando pip:
 
-**Windows (PowerShell):**
-```powershell
-(Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | py -
-```
-
-**Linux/macOS:**
 ```bash
-curl -sSL https://install.python-poetry.org | python3 -
-```
-
-### Usando Múltiplas Versões do Python no Windows com Poetry
-
-Este guia mostra como instalar e usar duas (ou mais) versões do Python no mesmo computador, e como configurar o Poetry para escolher qual versão será usada em cada projeto.
-
-#### 1️⃣ Instalar várias versões do Python no Windows
-
-O Windows permite ter múltiplas versões do Python instaladas lado a lado.
-
-Exemplo de diretórios padrão:
-```
-C:\Users\<usuario>\AppData\Local\Programs\Python\Python312\
-C:\Users\<usuario>\AppData\Local\Programs\Python\Python313\
-```
-
-Durante a instalação:
-1. **Desmarque** a opção "Add Python to PATH"
-2. **Marque** a opção "Add Python Launcher (py.exe) to PATH"
-
-Isso garante que você possa escolher facilmente a versão usando o Python Launcher (py).
-
-#### 2️⃣ Usar o Python Launcher para escolher a versão
-
-O Python Launcher (`py`) permite escolher qual versão rodar.
-
-**Ver versões instaladas:**
-```bash
-py -0
-```
-
-Exemplo de saída:
-```
-Installed Pythons found by py Launcher for Windows
- -3.13 *        C:\Users\<usuario>\AppData\Local\Programs\Python\Python313\python.exe
- -3.12          C:\Users\<usuario>\AppData\Local\Programs\Python\Python312\python.exe
-```
-
-**Rodar um script com uma versão específica:**
-```bash
-py -3.12 script.py
-py -3.13 script.py
-```
-
-**Ver caminhos completos das versões:**
-```bash
-py -0p
-```
-
-#### 3️⃣ Escolher a versão do Python no Poetry
-
-O Poetry cria ambientes virtuais (venvs) com a versão de Python que você especificar.
-
-**Passos:**
-
-1. Verifique as versões disponíveis:
-```bash
-py -0p
-```
-
-2. Configure o Poetry para usar uma versão específica:
-```bash
-poetry env use py -3.12
-```
-
-Ou, se preferir, especifique o caminho completo:
-```bash
-poetry env use "C:\Users\<usuario>\AppData\Local\Programs\Python\Python312\python.exe"
-```
-
-3. Recrie e instale o ambiente:
-```bash
-poetry install
+pip install poetry
 ```
 
 ### Passos para Configurar o Projeto
 
 1. Clone o repositório ou navegue até a pasta do projeto:
+
 ```bash
 cd processamento_imagem/src
 ```
 
 2. Instale as dependências (Poetry criará um ambiente virtual isolado automaticamente):
+
 ```bash
 poetry install
 ```
 
 3. Execute a API em modo desenvolvimento:
+
 ```bash
 poetry run poe dev
 ```
@@ -137,27 +64,15 @@ poetry run poe dev
 Este comando iniciará o servidor com hot-reload (recarrega automaticamente quando o código muda).
 
 **Alternativas:**
+
 - **Executar diretamente**: `poetry run python principal.py`
 - **Ativar ambiente virtual**: `poetry shell` e depois `python principal.py`
 
 4. Acesse a documentação interativa:
+
 ```
 http://localhost:8000/docs
 ```
-
-### Comandos Úteis
-
-**Desenvolvimento:**
-- **Iniciar servidor em desenvolvimento**: `poetry run poe dev` (com hot-reload)
-
-**Poetry:**
-- **Instalar dependências**: `poetry install`
-- **Adicionar nova dependência**: `poetry add nome-pacote`
-- **Ativar ambiente virtual**: `poetry shell`
-- **Executar comando no ambiente**: `poetry run <comando>`
-- **Atualizar dependências**: `poetry update`
-- **Ver dependências instaladas**: `poetry show`
-- **Gerar requirements.txt** (se necessário para deploy): `poetry export -f requirements.txt --output requirements.txt --without-hashes`
 
 ## Estrutura do Projeto
 
@@ -186,16 +101,19 @@ src/
 Todos os filtros têm dois tipos de endpoints:
 
 **1. Endpoint JSON** (retorna base64):
+
 ```
 POST /filtros/{nome_filtro}/{nivel}
 ```
 
 **2. Endpoint Download** (retorna ZIP):
+
 ```
 POST /filtros/{nome_filtro}/{nivel}/download
 ```
 
 Onde:
+
 - `{nome_filtro}`: sobel, roberts, canny, gaussiano, bilateral, media, mediana
 - `{nivel}`: 1 (baixo), 2 (normal), 3 (forte)
 
@@ -211,6 +129,7 @@ curl -X POST "http://localhost:8000/filtros/gaussiano/2" \
 ```
 
 **Resposta:**
+
 ```json
 {
   "imagem_original": "data:image/png;base64,iVBORw0KGgo...",
@@ -236,6 +155,7 @@ curl -X POST "http://localhost:8000/filtros/canny/3/download" \
 ```
 
 O arquivo ZIP conterá:
+
 - `original.png` - Imagem original
 - `filtrada.png` - Imagem com filtro aplicado
 - `info.json` - Metadados (tempo, parâmetros, etc)
@@ -300,26 +220,31 @@ curl -X POST "http://localhost:8000/filtros/bilateral/customizado" \
 ## Parâmetros por Nível
 
 ### Gaussiano
+
 - Nível 1: kernel (5x5)
 - Nível 2: kernel (15x15)
 - Nível 3: kernel (35x35)
 
 ### Bilateral
+
 - Nível 1: d=9, sigma_cor=25, sigma_espaco=25
 - Nível 2: d=15, sigma_cor=50, sigma_espaco=50
 - Nível 3: d=25, sigma_cor=75, sigma_espaco=75
 
 ### Média
+
 - Nível 1: kernel (3x3)
 - Nível 2: kernel (7x7)
 - Nível 3: kernel (15x15)
 
 ### Mediana
+
 - Nível 1: tamanho=3
 - Nível 2: tamanho=7
 - Nível 3: tamanho=15
 
 ### Canny
+
 - Nível 1: limiar1=50, limiar2=150
 - Nível 2: limiar1=100, limiar2=200
 - Nível 3: limiar1=150, limiar2=250
@@ -343,6 +268,7 @@ INFO: Filtro Bilateral customizado gerado em 234.56 ms
 ## Documentação Interativa
 
 Acesse `http://localhost:8000/docs` para a documentação Swagger completa, onde você pode:
+
 - Testar todos os endpoints diretamente no navegador
 - Ver exemplos de requisições e respostas
 - Explorar os modelos de dados
